@@ -1,0 +1,893 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Plane, MapPin, Coffee, Utensils, Camera, ShoppingBag, 
+  Sun, Cloud, CloudRain, Navigation, Info, Heart, 
+  Briefcase, Phone, Wallet, CheckSquare, ChevronRight, 
+  ArrowRight, Droplets, Map, MessageSquare, Send, User, X, 
+  Image as ImageIcon, Sparkles, Bot, Languages, Loader2,
+  CloudLightning, CloudSnow, Wind
+} from 'lucide-react';
+
+// --- Gemini API Configuration ---
+// 注意：在本地開發時，若希望 AI 功能正常運作，請在此填入您的 API Key。
+// 若為空字串，系統將使用模擬回應模式。
+const GEMINI_API_KEY = ""; 
+
+const callGemini = async (prompt) => {
+  if (!GEMINI_API_KEY) {
+    console.warn("API Key is missing. Simulating response.");
+    // 模擬延遲回應
+    return new Promise(resolve => setTimeout(() => resolve("模擬回應：這是 Gemini 的智慧回覆功能。由於程式碼中尚未填入 GEMINI_API_KEY，目前顯示此預設訊息。\n\n您可以在 src/App.jsx 中填入 Key 來啟用真實 AI。"), 1500));
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      }
+    );
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    return data.candidates[0].content.parts[0].text;
+  } catch (error) {
+    console.error("Gemini API Error:", error);
+    return "抱歉，目前 AI 連線有點問題，請稍後再試。";
+  }
+};
+
+// --- Weather API Configuration (Open-Meteo) ---
+const BANGKOK_COORDS = { lat: 13.7563, long: 100.5018 };
+const WEATHER_API_URL = `https://api.open-meteo.com/v1/forecast?latitude=${BANGKOK_COORDS.lat}&longitude=${BANGKOK_COORDS.long}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Asia%2FBangkok`;
+
+const getWeatherIcon = (code) => {
+  if (code === 0) return Sun; // Clear sky
+  if (code >= 1 && code <= 3) return Cloud; // Mainly clear, partly cloudy, and overcast
+  if (code >= 45 && code <= 48) return Cloud; // Fog
+  if (code >= 51 && code <= 67) return CloudRain; // Drizzle & Rain
+  if (code >= 80 && code <= 82) return CloudRain; // Rain showers
+  if (code >= 95 && code <= 99) return CloudLightning; // Thunderstorm
+  return Sun; // Default
+};
+
+const getWeatherDesc = (code) => {
+  if (code === 0) return "晴朗";
+  if (code >= 1 && code <= 3) return "多雲";
+  if (code >= 45 && code <= 48) return "霧";
+  if (code >= 51 && code <= 67) return "有雨";
+  if (code >= 80 && code <= 82) return "陣雨";
+  if (code >= 95 && code <= 99) return "雷雨";
+  return "晴時多雲";
+};
+
+// --- Data & Configuration ---
+
+const FRIENDS = ["小明", "小華", "小美", "我"];
+
+const TRIP_DATES = [
+  "2026-03-18", "2026-03-19", "2026-03-20", "2026-03-21", "2026-03-22"
+];
+
+const FLIGHT_INFO = {
+  outbound: { date: "3/18 (三)", code: "TPE → BKK/DMK", time: "07:00 - 09:50", duration: "3h 50m" },
+  inbound: { date: "3/22 (日)", code: "BKK/DMK → TPE", time: "17:50 - 22:25", duration: "3h 35m" }
+};
+
+const EMERGENCY_CONTACTS = [
+  { name: "泰國觀光警察", number: "1155" },
+  { name: "旅遊警察熱線", number: "1699" },
+  { name: "急救中心", number: "1669" },
+  { name: "駐泰國台北經濟文化辦事處", number: "+66-81-666-4006" },
+];
+
+const PACKING_LIST = [
+  { category: "證件", items: ["護照 (效期6個月以上)", "簽證/電子簽", "機票/飯店憑證", "保險單"] },
+  { category: "金錢/網卡", items: ["泰銖現金", "信用卡 (海外回饋)", "Sim卡/eSim", "兔子卡 (Rabbit Card)"] },
+  { category: "衣物", items: ["夏季輕便衣物", "薄外套 (百貨冷氣強)", "好走的鞋", "泳衣 (若飯店有泳池)"] },
+  { category: "雜項", items: ["防曬乳/墨鏡", "雨傘/輕便雨衣", "行動電源", "個人藥品 (腸胃藥)", "萬用轉接頭 (泰國雙孔與台相同，但三孔不同)"] },
+];
+
+// Helper to generate placeholder image URLs that match the style
+// 更新：改用本地生成的 SVG 圖片，保證一定顯示，不依賴外部網站
+const getImg = (text) => {
+  const svg = `
+    <svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" fill="#e7e5e4"/>
+      <text x="50%" y="50%" font-family="sans-serif" font-size="20" fill="#78716c" text-anchor="middle" dy=".3em">${text}</text>
+    </svg>
+  `;
+  // 使用 Base64 編碼確保相容性
+  return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`;
+};
+
+const ITINERARY_DATA = {
+  "2026-03-18": {
+    dayStr: "Day 1",
+    dateStr: "3/18 (三)",
+    title: "抵達 & 甜點祈福",
+    // Fallback static weather
+    weather: { temp: "34°C", condition: "Sunny", icon: "sun" },
+    events: [
+      { id: "d1-1", time: "09:50", type: "flight", title: "抵達曼谷機場", location: "Suvarnabhumi Airport (BKK)", desc: "辦理入境、領行李、購買網卡/換匯。", tags: [] },
+      { id: "d1-2", time: "12:00", type: "hotel", title: "飯店 Check-in", location: "Bangkok Hotel", desc: "先寄放行李，輕裝出發。", tags: [], image: getImg("Hotel Lobby") },
+      { id: "d1-3", time: "13:30", type: "spot", title: "四面佛", location: "Erawan Shrine, Bangkok", desc: "泰國香火最鼎盛的佛像之一。", guide: "願望成真記得回來還願。買花圈請務必在『圍欄內』的官方櫃台購買。", tags: ["必訪"], image: getImg("Erawan Shrine") },
+      { id: "d1-4", time: "14:30", type: "spot", title: "Central World", location: "Central World", desc: "參拜後步行至旁邊百貨吹冷氣。", tags: [], image: getImg("Central World") },
+      { id: "d1-5", time: "15:00", type: "food", title: "After You Dessert", location: "After You Central World", desc: "曼谷第一名甜點店。", guide: "必點『泰奶刨冰』，內藏仙草凍與麵包丁，口感豐富。", tags: ["必吃: 泰奶刨冰", "必吃: 蜜糖吐司"], image: getImg("Thai Tea Kakigori") },
+      { id: "d1-6", time: "17:00", type: "transport", title: "前往河濱夜市", location: "Sathorn Pier", desc: "搭 BTS 至 Saphan Taksin 2號出口轉免費接駁船，或直接 Grab。", guide: "傍晚搭船可順便欣賞昭披耶河夕陽。", tags: [] },
+      { id: "d1-7", time: "18:00", type: "spot", title: "河濱夜市", location: "Asiatique The Riverfront", desc: "倉庫改建的大型夜市，乾淨好逛。", tags: ["摩天輪夜景"], image: getImg("Asiatique") },
+      { id: "d1-8", time: "19:30", type: "spot", title: "人妖秀", location: "Calypso Cabaret Asiatique", desc: "經典歌舞表演。", guide: "結束後可與表演者合照，需給小費 (約 50-100 THB)。", tags: ["需預訂"], image: getImg("Cabaret Show") },
+    ]
+  },
+  "2026-03-19": {
+    dayStr: "Day 2",
+    dateStr: "3/19 (四)",
+    title: "野生動物園狂歡",
+    weather: { temp: "35°C", condition: "Partly Cloudy", icon: "cloud-sun" },
+    events: [
+      { id: "d2-1", time: "08:00", type: "transport", title: "出發 Safari World", location: "Safari World", desc: "距離市區約 40-50 分鐘車程。", guide: "強烈建議事先預訂『包車接送』，回程叫車非常困難且昂貴。", tags: ["交通注意"] },
+      { id: "d2-2", time: "09:30", type: "spot", title: "Safari World", location: "Safari World", desc: "Safari Park (搭車看動物) + Marine Park (走路看秀)。", guide: "必看『間諜戰 (Spy War)』爆破秀與海豚秀。", tags: ["親子首選", "必看: 餵長頸鹿"], image: getImg("Safari Giraffe") },
+      { id: "d2-3", time: "12:00", type: "food", title: "園區午餐", location: "Safari World", desc: "通常包含在套票內的自助餐。", tags: [] },
+      { id: "d2-4", time: "16:00", type: "transport", title: "返回市區", location: "Jodd Fairs Rama 9", desc: "前往 Jodd Fairs 夜市區域。", tags: [] },
+      { id: "d2-5", time: "18:00", type: "food", title: "Jodd Fairs 夜市", location: "Jodd Fairs Rama 9", desc: "文青風格夜市。", guide: "必吃『火山排骨』與『水果冰沙』。", tags: ["必吃: 火山排骨"], image: getImg("Jodd Fairs Food") },
+      { id: "d2-6", time: "20:00", type: "relax", title: "泰式按摩", location: "Rama 9 Massage", desc: "動物園走一天腿很痠，安排 1-2 小時按摩。", tags: ["放鬆推薦"], image: getImg("Thai Massage") },
+    ]
+  },
+  "2026-03-20": {
+    dayStr: "Day 3",
+    dateStr: "3/20 (五)",
+    title: "泰服古蹟 & 高空饗宴",
+    weather: { temp: "36°C", condition: "Sunny", icon: "sun" },
+    events: [
+      { id: "d3-1", time: "09:00", type: "spot", title: "鄭王廟 (Wat Arun)", location: "Wat Arun", desc: "莊嚴潔白的黎明寺，泰服體驗。", guide: "建議選『深色/飽和色』泰服，在白色建築前拍照更跳色。", tags: ["IG熱點"], image: getImg("Wat Arun") },
+      { id: "d3-2", time: "12:30", type: "spot", title: "ICONSIAM", location: "ICONSIAM", desc: "曼谷最浮誇百貨。", tags: [], image: getImg("ICONSIAM") },
+      { id: "d3-3", time: "13:00", type: "food", title: "SookSiam 水上市場", location: "ICONSIAM G Floor", desc: "位於 G 樓，有冷氣的水上市場。", guide: "推薦『船麵』、『泰式煎餅』、『椰子冰淇淋』。", tags: ["必訪"], image: getImg("Floating Market") },
+      { id: "d3-4", time: "17:00", type: "transport", title: "前往水門市場", location: "Baiyoke Sky Hotel", desc: "搭船轉捷運或叫車。", tags: [] },
+      { id: "d3-5", time: "18:30", type: "food", title: "Baiyoke 81樓 Buffet", location: "Baiyoke Sky Hotel", desc: "室內海鮮自助餐 + 84樓旋轉觀景台。", guide: "高空夜景CP值高。吃飽後務必上 84 樓戶外旋轉台吹風看夜景。", tags: ["需預訂"], image: getImg("Sky Buffet") },
+    ]
+  },
+  "2026-03-21": {
+    dayStr: "Day 4",
+    dateStr: "3/21 (六)",
+    title: "週末市集 & 玻璃步道",
+    weather: { temp: "37°C", condition: "Hot", icon: "sun" },
+    events: [
+      { id: "d4-1", time: "09:30", type: "shopping", title: "恰圖恰週末市集", location: "Chatuchak Weekend Market", desc: "世界最大市集，僅週末全開。", guide: "極熱！衣服主攻 Section 2-4，飾品在 Section 24。", tags: ["週末限定", "必買: 香氛/泰衣"], image: getImg("Chatuchak Market") },
+      { id: "d4-2", time: "12:30", type: "food", title: "市集午餐", location: "Chatuchak Weekend Market", desc: "享用椰子冰、西班牙海鮮燉飯。", tags: [], image: getImg("Coconut Ice Cream") },
+      { id: "d4-3", time: "15:00", type: "relax", title: "回飯店休息", location: "Bangkok Hotel", desc: "流汗太多，強烈建議回飯店洗澡補眠。", tags: ["充電時間"] },
+      { id: "d4-4", time: "17:00", type: "spot", title: "Mahanakhon SkyWalk", location: "King Power Mahanakhon", desc: "曼谷最高玻璃天空步道。", guide: "下午五點入場剛好可看夕陽轉夜景。注意：走玻璃步道需套鞋套。", tags: ["必訪: 黃金時刻"], image: getImg("SkyWalk Glass") },
+    ]
+  },
+  "2026-03-22": {
+    dayStr: "Day 5",
+    dateStr: "3/22 (日)",
+    title: "甜點巡禮 & 返台",
+    weather: { temp: "34°C", condition: "Cloudy", icon: "cloud" },
+    events: [
+      { id: "d5-1", time: "10:00", type: "hotel", title: "飯店退房", location: "Bangkok Hotel", desc: "寄放行李。", tags: [] },
+      { id: "d5-2", time: "10:30", type: "food", title: "Mae Varee 芒果糯米", location: "Mae Varee Mango Sticky Rice", desc: "曼谷最知名的芒果糯米。", guide: "三色糯米飯必買！適合帶去機場當最後的饗宴。", tags: ["必買伴手禮"], image: getImg("Mango Sticky Rice") },
+      { id: "d5-3", time: "11:30", type: "food", title: "Terminal 21 Asok", location: "Terminal 21 Asok", desc: "環遊世界主題百貨。", guide: "5樓 Pier 21 美食街需先『儲值卡片』消費，餘額可全退。", tags: ["高CP值午餐"], image: getImg("Terminal 21") },
+      { id: "d5-4", time: "12:30", type: "food", title: "Bake A Wish 點心", location: "Terminal 21 Asok", desc: "LG 層。迷你泡芙一顆 10-30 THB。", tags: [], image: getImg("Mini Puffs") },
+      { id: "d5-5", time: "13:30", type: "shopping", title: "Big C Supercenter", location: "Big C Rajdamri", desc: "最後伴手禮掃貨。", guide: "必買：MAMA泡麵、小老闆海苔、手標泰奶粉。", tags: ["掃貨"], image: getImg("Big C Snacks") },
+      { id: "d5-6", time: "14:30", type: "transport", title: "前往機場", location: "Suvarnabhumi Airport (BKK)", desc: "預留塞車時間，提早出發。", tags: [] },
+      { id: "d5-7", time: "17:50", type: "flight", title: "搭機返台", location: "Suvarnabhumi Airport (BKK)", desc: "結束美好的旅程。", tags: [] },
+    ]
+  }
+};
+
+// --- Components ---
+
+const WeatherWidget = ({ weather, isLive }) => {
+  let Icon = Sun;
+  
+  // Use weather code to determine icon if available, otherwise fallback to text match
+  if (weather.code !== undefined) {
+    Icon = getWeatherIcon(weather.code);
+  } else {
+    // Legacy fallback
+    if (weather.condition === 'Cloudy' || weather.condition === 'Partly Cloudy') Icon = Cloud;
+    if (weather.condition === 'Rain' || weather.condition.includes('Rain')) Icon = CloudRain;
+  }
+
+  return (
+    <div className="relative overflow-hidden bg-gradient-to-br from-stone-100 to-stone-50 p-4 rounded-xl mb-6 border border-stone-200 shadow-sm">
+      {/* Live Badge */}
+      {isLive && (
+        <div className="absolute top-0 right-0 bg-violet-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-bl-lg animate-pulse">
+          LIVE
+        </div>
+      )}
+      
+      <div className="flex items-center justify-between relative z-10">
+        <div>
+          <p className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+            {isLive ? 'Live Forecast (BKK)' : 'Estimated Forecast'}
+          </p>
+          <p className="text-stone-700 font-medium text-lg">
+            {weather.desc || weather.condition}
+          </p>
+          {weather.min && weather.max && (
+             <p className="text-xs text-stone-400 mt-0.5">L:{weather.min}° H:{weather.max}°</p>
+          )}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-3xl font-light text-stone-800 tracking-tighter">
+            {weather.temp}
+          </span>
+          <Icon className={`w-10 h-10 ${isLive ? 'text-violet-600' : 'text-stone-600'}`} strokeWidth={1.5} />
+        </div>
+      </div>
+      
+      {/* Decorative BG element */}
+      <div className="absolute -right-4 -bottom-4 text-stone-200 opacity-20">
+        <Icon className="w-24 h-24" />
+      </div>
+    </div>
+  );
+};
+
+const Tag = ({ text }) => {
+  // Highlight different types of tags
+  const isMust = text.includes("必");
+  const isBooking = text.includes("預訂") || text.includes("注意");
+  
+  let bgClass = "bg-stone-200 text-stone-600";
+  if (isMust) bgClass = "bg-amber-100 text-amber-800 border-amber-200";
+  if (isBooking) bgClass = "bg-rose-100 text-rose-800 border-rose-200";
+
+  return (
+    <span className={`text-[10px] px-2 py-1 rounded-full border border-transparent ${bgClass} font-medium tracking-wide`}>
+      {text}
+    </span>
+  );
+};
+
+const EventCard = ({ event, notes = [], onAddNote, onAskAI }) => {
+  const [isNoteOpen, setIsNoteOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState(FRIENDS[0]);
+  const [noteText, setNoteText] = useState("");
+  const [imgError, setImgError] = useState(false);
+
+  const getIcon = (type) => {
+    switch (type) {
+      case 'flight': return <Plane className="w-5 h-5" />;
+      case 'spot': return <Camera className="w-5 h-5" />;
+      case 'food': return <Utensils className="w-5 h-5" />;
+      case 'shopping': return <ShoppingBag className="w-5 h-5" />;
+      case 'hotel': return <Briefcase className="w-5 h-5" />;
+      case 'relax': return <Coffee className="w-5 h-5" />;
+      default: return <MapPin className="w-5 h-5" />;
+    }
+  };
+
+  const handleNavClick = () => {
+    const query = encodeURIComponent(event.location);
+    window.open(`https://www.google.com/maps/search/?api=1&query=${query}`, '_blank');
+  };
+
+  const handleSubmitNote = (e) => {
+    e.preventDefault();
+    if (noteText.trim()) {
+      onAddNote(event.id, currentUser, noteText);
+      setNoteText("");
+    }
+  };
+
+  return (
+    <div className="flex gap-4 mb-8 relative last:mb-24 group">
+      {/* Timeline Line */}
+      <div className="absolute left-[19px] top-10 bottom-[-32px] w-[2px] bg-stone-200 group-last:hidden"></div>
+
+      {/* Icon */}
+      <div className="relative z-10 flex-shrink-0">
+        <div className={`w-10 h-10 rounded-full flex items-center justify-center border-2 border-white shadow-sm
+          ${event.type === 'food' ? 'bg-orange-50 text-orange-600' : 
+            event.type === 'spot' ? 'bg-emerald-50 text-emerald-600' :
+            event.type === 'flight' ? 'bg-blue-50 text-blue-600' :
+            'bg-stone-50 text-stone-600'}`}>
+          {getIcon(event.type)}
+        </div>
+      </div>
+
+      {/* Content Card */}
+      <div className="flex-1 bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
+        <div className="p-4 pb-3 flex gap-3">
+          {/* Left: Text Info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-start mb-2">
+              <span className="text-xs font-bold text-stone-400 tracking-wider bg-stone-50 px-2 py-0.5 rounded-md">
+                {event.time}
+              </span>
+              <button 
+                onClick={handleNavClick}
+                className="text-stone-400 hover:text-blue-500 transition-colors p-1"
+                aria-label="Navigate"
+              >
+                <Navigation className="w-4 h-4" />
+              </button>
+            </div>
+            
+            <h3 className="font-bold text-stone-800 text-lg mb-1 leading-tight">{event.title}</h3>
+            <p className="text-sm text-stone-500 mb-3 leading-relaxed">{event.desc}</p>
+            
+            {event.guide && (
+              <div className="bg-stone-50 p-3 rounded-lg border-l-2 border-stone-300 mb-3">
+                <p className="text-xs text-stone-600 leading-relaxed italic">
+                  <span className="font-bold not-italic mr-1">💡 嚮導筆記:</span>
+                  {event.guide}
+                </p>
+              </div>
+            )}
+            
+            <div className="flex flex-wrap gap-2 mb-2 items-center">
+              {event.tags && event.tags.map((tag, idx) => <Tag key={idx} text={tag} />)}
+              
+              {/* AI Button */}
+              <button 
+                onClick={() => onAskAI(`請用繁體中文簡介「${event.title}」的特色，並給我一個關於這裡的冷門小知識或拍照建議。`)}
+                className="flex items-center gap-1 bg-gradient-to-r from-violet-100 to-fuchsia-100 text-violet-700 px-2 py-1 rounded-full text-[10px] font-bold border border-violet-200 hover:opacity-80 transition-opacity"
+              >
+                <Sparkles className="w-3 h-3" />
+                AI 攻略
+              </button>
+            </div>
+          </div>
+
+          {/* Right: Image (if exists) */}
+          {event.image && !imgError && (
+            <div className="w-24 h-24 flex-shrink-0 rounded-lg overflow-hidden bg-stone-100 self-start mt-1">
+               <img 
+                src={event.image} 
+                alt={event.title}
+                className="w-full h-full object-cover hover:scale-110 transition-transform duration-500"
+                onError={() => setImgError(true)}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Footer Actions (Notes) */}
+        <div className="px-4 py-2 border-t border-stone-50 bg-stone-50/30 flex justify-end">
+          <button 
+            onClick={() => setIsNoteOpen(!isNoteOpen)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all
+              ${isNoteOpen 
+                ? 'bg-stone-800 text-white' 
+                : notes.length > 0 
+                  ? 'bg-amber-100 text-amber-700' 
+                  : 'bg-white text-stone-400 border border-stone-100 hover:border-stone-300'}`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>{notes.length > 0 ? `${notes.length} 備註` : '新增備註'}</span>
+          </button>
+        </div>
+
+        {/* Notes Section (Expandable) */}
+        {isNoteOpen && (
+          <div className="bg-stone-50 border-t border-stone-100 p-4 animate-in slide-in-from-top-2 duration-200">
+            {/* Notes List */}
+            {notes.length > 0 ? (
+              <div className="space-y-3 mb-4 max-h-40 overflow-y-auto pr-1 custom-scrollbar">
+                {notes.map((note, idx) => (
+                  <div key={idx} className="flex gap-2 items-start">
+                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-stone-200 flex items-center justify-center text-[10px] font-bold text-stone-600 mt-0.5">
+                      {note.user.charAt(0)}
+                    </div>
+                    <div className="bg-white p-2 rounded-r-lg rounded-bl-lg shadow-sm text-sm text-stone-700 flex-1 border border-stone-100">
+                      <span className="text-[10px] text-stone-400 block mb-0.5">{note.user}</span>
+                      {note.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-3 text-stone-400 text-xs italic mb-2">
+                暫無備註，來當第一個留言的人吧！
+              </div>
+            )}
+
+            {/* Note Input */}
+            <form onSubmit={handleSubmitNote} className="flex flex-col gap-2">
+              <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                {FRIENDS.map(friend => (
+                  <button
+                    key={friend}
+                    type="button"
+                    onClick={() => setCurrentUser(friend)}
+                    className={`px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-colors
+                      ${currentUser === friend 
+                        ? 'bg-stone-800 text-white shadow-sm' 
+                        : 'bg-white border border-stone-200 text-stone-500 hover:border-stone-400'}`}
+                  >
+                    {friend}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder={`以 ${currentUser} 的身份留言...`}
+                  className="flex-1 bg-white border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-stone-400"
+                />
+                <button 
+                  type="submit"
+                  disabled={!noteText.trim()}
+                  className="bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// --- AI Chat Tab ---
+
+const AIChatTab = ({ initialQuery }) => {
+  const [messages, setMessages] = useState([
+    { role: 'assistant', text: '你好！我是你的 AI 曼谷導遊 🤖。想問什麼旅遊資訊、需要翻譯泰文，或尋找隱藏美食都可以問我喔！' }
+  ]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    if (initialQuery) {
+      handleSend(initialQuery);
+    }
+  }, [initialQuery]);
+
+  const handleSend = async (text) => {
+    if (!text.trim()) return;
+
+    const userMsg = { role: 'user', text };
+    setMessages(prev => [...prev, userMsg]);
+    setInput("");
+    setIsLoading(true);
+
+    // Prepare prompt with context
+    const contextPrompt = `
+      你現在是一位專業的曼谷在地導遊，請用繁體中文回答。
+      使用者目前正在進行 5 天 4 夜的曼谷之旅。
+      請回答使用者的問題。如果需要翻譯成泰文，請給出泰文原文方便使用者展示給當地人看。
+      
+      使用者問題：${text}
+    `;
+
+    const aiResponseText = await callGemini(contextPrompt);
+    
+    setMessages(prev => [...prev, { role: 'assistant', text: aiResponseText }]);
+    setIsLoading(false);
+  };
+
+  const quickActions = [
+    { label: "🇹🇭 翻譯：太辣了", prompt: "請翻譯成泰文：「這道菜太辣了，請幫我做不辣的。」並附上發音與中文。" },
+    { label: "🚕 翻譯：去這裡", prompt: "請翻譯成泰文：「你好，我要去這個地址，請跳錶計費。」並附上發音。" },
+    { label: "🙏 寺廟禮儀", prompt: "請問參觀曼谷的寺廟（如鄭王廟、四面佛）有哪些服裝和禮儀禁忌？" },
+    { label: "🥡 推薦宵夜", prompt: "請推薦 3 個曼谷現在必吃的便利商店(7-11)美食或宵夜。" },
+  ];
+
+  return (
+    <div className="flex flex-col h-[calc(100vh-140px)] bg-stone-50">
+      {/* Header */}
+      <div className="bg-white px-4 py-3 border-b border-stone-200 flex items-center gap-2 shadow-sm">
+        <div className="bg-violet-100 p-2 rounded-full">
+          <Bot className="w-5 h-5 text-violet-600" />
+        </div>
+        <div>
+          <h2 className="font-bold text-stone-800">AI 隨身導遊</h2>
+          <p className="text-[10px] text-stone-400">Powered by Gemini ✨</p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm
+              ${msg.role === 'user' 
+                ? 'bg-stone-800 text-white rounded-br-none' 
+                : 'bg-white text-stone-700 border border-stone-100 rounded-bl-none'}`}>
+              {msg.text.split('\n').map((line, i) => (
+                <p key={i} className={i > 0 ? 'mt-2' : ''}>{line}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+        {isLoading && (
+          <div className="flex justify-start">
+            <div className="bg-white rounded-2xl rounded-bl-none px-4 py-3 border border-stone-100 shadow-sm flex items-center gap-2">
+              <Loader2 className="w-4 h-4 text-violet-500 animate-spin" />
+              <span className="text-xs text-stone-400">AI 正在思考中...</span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Quick Actions & Input */}
+      <div className="bg-white border-t border-stone-200 p-4 pb-0">
+        <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-2">
+          {quickActions.map((action, idx) => (
+            <button
+              key={idx}
+              onClick={() => handleSend(action.prompt)}
+              className="flex-shrink-0 bg-stone-50 border border-stone-200 text-stone-600 px-3 py-1.5 rounded-full text-xs font-medium hover:bg-violet-50 hover:text-violet-700 hover:border-violet-200 transition-colors"
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+        
+        <form 
+          onSubmit={(e) => { e.preventDefault(); handleSend(input); }}
+          className="flex gap-2 mb-4"
+        >
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="輸入問題或翻譯需求..."
+            className="flex-1 bg-stone-100 border-transparent focus:bg-white border focus:border-stone-300 rounded-xl px-4 py-3 text-sm focus:outline-none transition-all"
+          />
+          <button 
+            type="submit" 
+            disabled={!input.trim() || isLoading}
+            className="bg-stone-800 text-white p-3 rounded-xl hover:bg-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <Send className="w-5 h-5" />
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const ToolsTab = () => {
+  const [expenses, setExpenses] = useState([]);
+  const [newExpenseName, setNewExpenseName] = useState('');
+  const [newExpenseAmount, setNewExpenseAmount] = useState('');
+
+  const addExpense = () => {
+    if (newExpenseName && newExpenseAmount) {
+      setExpenses([...expenses, { name: newExpenseName, amount: parseInt(newExpenseAmount), id: Date.now() }]);
+      setNewExpenseName('');
+      setNewExpenseAmount('');
+    }
+  };
+
+  const totalExpense = expenses.reduce((acc, curr) => acc + curr.amount, 0);
+
+  return (
+    <div className="p-4 space-y-6 pb-24">
+      {/* Flights */}
+      <div className="bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden">
+        <div className="bg-stone-800 px-4 py-3 flex items-center gap-2">
+          <Plane className="w-5 h-5 text-white" />
+          <h2 className="text-white font-medium tracking-wide">航班資訊</h2>
+        </div>
+        <div className="p-4 divide-y divide-stone-100">
+          <div className="pb-3">
+            <div className="flex justify-between text-sm text-stone-400 mb-1">去程 {FLIGHT_INFO.outbound.date}</div>
+            <div className="font-bold text-stone-800 text-lg">{FLIGHT_INFO.outbound.code}</div>
+            <div className="text-stone-600">{FLIGHT_INFO.outbound.time} <span className="text-xs text-stone-400">({FLIGHT_INFO.outbound.duration})</span></div>
+          </div>
+          <div className="pt-3">
+            <div className="flex justify-between text-sm text-stone-400 mb-1">回程 {FLIGHT_INFO.inbound.date}</div>
+            <div className="font-bold text-stone-800 text-lg">{FLIGHT_INFO.inbound.code}</div>
+            <div className="text-stone-600">{FLIGHT_INFO.inbound.time} <span className="text-xs text-stone-400">({FLIGHT_INFO.inbound.duration})</span></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Emergency */}
+      <div className="bg-white rounded-xl shadow-sm border border-stone-100">
+         <div className="bg-rose-50 px-4 py-3 flex items-center gap-2 border-b border-rose-100">
+          <Phone className="w-5 h-5 text-rose-500" />
+          <h2 className="text-rose-700 font-medium tracking-wide">緊急聯絡</h2>
+        </div>
+        <div className="p-4 grid grid-cols-2 gap-3">
+          {EMERGENCY_CONTACTS.map((c, idx) => (
+            <a key={idx} href={`tel:${c.number}`} className="flex flex-col p-3 bg-stone-50 rounded-lg active:bg-stone-100 transition-colors">
+              <span className="text-xs text-stone-400 mb-1">{c.name}</span>
+              <span className="text-stone-800 font-bold">{c.number}</span>
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {/* Expense Tracker */}
+      <div className="bg-white rounded-xl shadow-sm border border-stone-100">
+        <div className="bg-emerald-50 px-4 py-3 flex items-center gap-2 border-b border-emerald-100">
+          <Wallet className="w-5 h-5 text-emerald-600" />
+          <h2 className="text-emerald-800 font-medium tracking-wide">快速記帳</h2>
+        </div>
+        <div className="p-4">
+          <div className="flex gap-2 mb-4">
+            <input 
+              type="text" 
+              placeholder="項目 (例: 按摩)" 
+              className="flex-1 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-stone-400"
+              value={newExpenseName}
+              onChange={(e) => setNewExpenseName(e.target.value)}
+            />
+            <input 
+              type="number" 
+              placeholder="THB" 
+              className="w-20 bg-stone-50 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-stone-400"
+              value={newExpenseAmount}
+              onChange={(e) => setNewExpenseAmount(e.target.value)}
+            />
+            <button 
+              onClick={addExpense}
+              className="bg-emerald-600 text-white p-2 rounded-lg hover:bg-emerald-700"
+            >
+              <CheckSquare className="w-5 h-5" />
+            </button>
+          </div>
+          
+          <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
+            {expenses.length === 0 ? (
+              <p className="text-center text-stone-300 text-sm py-2">尚未新增項目</p>
+            ) : (
+              expenses.map(e => (
+                <div key={e.id} className="flex justify-between text-sm border-b border-stone-50 pb-1">
+                  <span className="text-stone-600">{e.name}</span>
+                  <span className="font-mono text-stone-800">{e.amount}</span>
+                </div>
+              ))
+            )}
+          </div>
+          
+          <div className="flex justify-between items-center pt-2 border-t border-stone-100">
+            <span className="text-sm font-bold text-stone-500">總支出</span>
+            <span className="text-lg font-bold text-emerald-600 font-mono">{totalExpense} THB</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Packing List */}
+      <div className="bg-white rounded-xl shadow-sm border border-stone-100">
+        <div className="px-4 py-3 border-b border-stone-100 flex items-center gap-2">
+           <Briefcase className="w-5 h-5 text-stone-600" />
+           <h2 className="text-stone-800 font-medium tracking-wide">行李清單</h2>
+        </div>
+        <div className="p-4 space-y-4">
+          {PACKING_LIST.map((cat, idx) => (
+            <div key={idx}>
+              <h3 className="text-xs font-bold text-stone-400 uppercase tracking-wider mb-2">{cat.category}</h3>
+              <div className="grid grid-cols-1 gap-2">
+                {cat.items.map((item, i) => (
+                  <label key={i} className="flex items-center gap-2 text-sm text-stone-600">
+                    <input type="checkbox" className="rounded text-stone-600 focus:ring-stone-500 border-stone-300" />
+                    {item}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Main App Component ---
+
+const App = () => {
+  const [activeTab, setActiveTab] = useState('itinerary');
+  const [selectedDay, setSelectedDay] = useState("2026-03-18");
+  const [eventNotes, setEventNotes] = useState({}); 
+  const [aiQuery, setAiQuery] = useState(null); 
+  const [weatherData, setWeatherData] = useState(null); // Real-time weather data
+  const currentDayData = ITINERARY_DATA[selectedDay];
+
+  // Fetch Weather Effect
+  useEffect(() => {
+    const fetchWeather = async () => {
+      try {
+        const res = await fetch(WEATHER_API_URL);
+        const data = await res.json();
+        
+        // Transform the forecast data into a map for easier access by index (since dates won't match future trip)
+        // We'll map today's forecast to trip Day 1, tomorrow to Day 2, etc. to simulate "Forecast" for the trip.
+        const transformedData = {
+          current: {
+            temp: Math.round(data.current.temperature_2m) + "°C",
+            code: data.current.weather_code,
+            desc: getWeatherDesc(data.current.weather_code)
+          },
+          daily: data.daily.time.map((_, idx) => ({
+            temp: Math.round(data.daily.temperature_2m_max[idx]) + "°C",
+            min: Math.round(data.daily.temperature_2m_min[idx]),
+            max: Math.round(data.daily.temperature_2m_max[idx]),
+            code: data.daily.weather_code[idx],
+            desc: getWeatherDesc(data.daily.weather_code[idx])
+          }))
+        };
+        
+        setWeatherData(transformedData);
+      } catch (err) {
+        console.error("Failed to fetch weather:", err);
+      }
+    };
+    
+    fetchWeather();
+  }, []);
+
+  // Determine which weather data to show
+  let displayWeather = currentDayData.weather; // default static
+  let isLiveWeather = false;
+
+  if (weatherData) {
+    // Find index of selected day in our trip (0 to 4)
+    const tripDayIndex = TRIP_DATES.indexOf(selectedDay);
+    
+    if (tripDayIndex !== -1 && weatherData.daily[tripDayIndex]) {
+       const dailyForecast = weatherData.daily[tripDayIndex];
+       displayWeather = {
+         temp: dailyForecast.temp,
+         condition: dailyForecast.desc, // We map the description
+         code: dailyForecast.code, // Pass code for icon logic
+         desc: dailyForecast.desc,
+         min: dailyForecast.min,
+         max: dailyForecast.max
+       };
+       isLiveWeather = true;
+    }
+  }
+
+  // Scroll to top when changing days
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [selectedDay]);
+
+  const handleAddNote = (eventId, user, text) => {
+    setEventNotes(prev => ({
+      ...prev,
+      [eventId]: [...(prev[eventId] || []), { user, text, timestamp: Date.now() }]
+    }));
+  };
+
+  const handleAskAI = (query) => {
+    setAiQuery(query);
+    setActiveTab('ai');
+  };
+
+  return (
+    <div className="min-h-screen bg-stone-50 font-sans text-stone-800 selection:bg-stone-200">
+      
+      {/* Top Header */}
+      <header className="sticky top-0 z-30 bg-stone-50/90 backdrop-blur-md border-b border-stone-200 px-4 py-4">
+        <div className="max-w-md mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-stone-800">曼谷精華之旅</h1>
+            <p className="text-xs text-stone-500 tracking-wide mt-0.5">2026.03.18 - 03.22</p>
+          </div>
+          <div className="bg-stone-200 text-stone-600 text-[10px] font-bold px-2 py-1 rounded">
+            5 Days
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="max-w-md mx-auto min-h-screen">
+        
+        {activeTab === 'itinerary' && (
+          <>
+            {/* Day Selector */}
+            <div className="sticky top-[73px] z-20 bg-stone-50 pt-2 pb-2 overflow-x-auto no-scrollbar border-b border-stone-200 shadow-sm">
+              <div className="flex px-4 gap-3 min-w-max">
+                {TRIP_DATES.map((date) => {
+                  const info = ITINERARY_DATA[date];
+                  const isSelected = selectedDay === date;
+                  return (
+                    <button
+                      key={date}
+                      onClick={() => setSelectedDay(date)}
+                      className={`flex flex-col items-center justify-center w-16 h-16 rounded-xl transition-all duration-300
+                        ${isSelected 
+                          ? 'bg-stone-800 text-white shadow-md scale-105' 
+                          : 'bg-white text-stone-400 border border-stone-100 hover:border-stone-300'}`}
+                    >
+                      <span className="text-[10px] font-medium tracking-widest uppercase mb-1">{info.dayStr}</span>
+                      <span className={`text-lg font-bold ${isSelected ? 'text-white' : 'text-stone-600'}`}>
+                        {date.split('-')[2]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Daily Content */}
+            <div className="px-4 py-6">
+              <div className="mb-2">
+                <span className="text-stone-400 text-sm font-medium">{currentDayData.dateStr}</span>
+                {/* <h2 className="text-2xl font-bold text-stone-800 mt-1 mb-4">{currentDayData.title}</h2> 移除標題 */}
+              </div>
+
+              <WeatherWidget weather={displayWeather} isLive={isLiveWeather} />
+
+              <div className="mt-6">
+                {currentDayData.events.map((event) => (
+                  <EventCard 
+                    key={event.id} 
+                    event={event} 
+                    notes={eventNotes[event.id] || []}
+                    onAddNote={handleAddNote}
+                    onAskAI={handleAskAI}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'ai' && <AIChatTab initialQuery={aiQuery} />}
+        {activeTab === 'tools' && <ToolsTab />}
+
+      </main>
+
+      {/* Bottom Navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-stone-200 pb-safe">
+        <div className="max-w-md mx-auto flex justify-around items-center h-16">
+          <button 
+            onClick={() => setActiveTab('itinerary')}
+            className={`flex flex-col items-center justify-center w-full h-full space-y-1
+              ${activeTab === 'itinerary' ? 'text-stone-800' : 'text-stone-400 hover:text-stone-600'}`}
+          >
+            <Map className="w-5 h-5" strokeWidth={activeTab === 'itinerary' ? 2.5 : 2} />
+            <span className="text-[10px] font-medium tracking-wide">行程</span>
+          </button>
+          
+          <div className="w-[1px] h-8 bg-stone-100"></div>
+
+          <button 
+            onClick={() => { setActiveTab('ai'); setAiQuery(null); }}
+            className={`flex flex-col items-center justify-center w-full h-full space-y-1
+              ${activeTab === 'ai' ? 'text-violet-600' : 'text-stone-400 hover:text-stone-600'}`}
+          >
+            <div className={`p-1 rounded-lg ${activeTab === 'ai' ? 'bg-violet-50' : ''}`}>
+               <Sparkles className="w-5 h-5" strokeWidth={activeTab === 'ai' ? 2.5 : 2} />
+            </div>
+            <span className="text-[10px] font-medium tracking-wide">AI 導遊</span>
+          </button>
+
+          <div className="w-[1px] h-8 bg-stone-100"></div>
+
+          <button 
+            onClick={() => setActiveTab('tools')}
+            className={`flex flex-col items-center justify-center w-full h-full space-y-1
+              ${activeTab === 'tools' ? 'text-stone-800' : 'text-stone-400 hover:text-stone-600'}`}
+          >
+            <Briefcase className="w-5 h-5" strokeWidth={activeTab === 'tools' ? 2.5 : 2} />
+            <span className="text-[10px] font-medium tracking-wide">工具箱</span>
+          </button>
+        </div>
+      </nav>
+
+    </div>
+  );
+};
+
+export default App;
