@@ -1,3 +1,15 @@
+# 曼谷自由行 (Bangkok Free Travel)
+
+這是一個專為自由行旅客打造的漸進式網頁應用程式 (PWA)，提供流暢的旅遊行程規劃與瀏覽體驗。
+
+## 技術棧 (Tech Stack)
+* **前端框架:** React + Vite
+* **樣式設計:** Tailwind CSS
+
+## 如何在本地端運行 (Getting Started)
+1. Clone 這個專案
+2. 執行 `npm install` 安裝依賴
+3. 執行 `npm run dev` 啟動本地伺服器
 # React + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
